@@ -570,8 +570,8 @@ function getAdminHTML(env) {
 
         .list-panel { display: flex; flex-direction: column; height: 100%; }
         .items-list {
-            flex: 1;
-            overflow-y: auto;
+            height: 300px;         /* Fixed height is required for scrolling */
+            overflow-y: auto;      /* Adds scrollbar only when needed */
             border: 1px solid var(--gray-200);
             border-radius: 8px;
             margin-top: 10px;
@@ -1363,11 +1363,12 @@ function getAdminHTML(env) {
 
                 const fullShareUrl = window.location.origin + item.shareLink;
                 const expiryLabel = utils.formatExpiry(item.expiresSec, item.shareActivateStamp);
+                let shareUrl = \`\${fullShareUrl.slice(0, Math.min(60,fullShareUrl.length))}...\`;
 
                 bar.innerHTML = \`
                     <div class="share-info-bar">
                         <span class="share-label">🔗 Shared</span>
-                        <span class="share-url" title="\${utils.escapeHtml(fullShareUrl)}">\${utils.escapeHtml(fullShareUrl)}</span>
+                        <span class="share-url" title="\${utils.escapeHtml(fullShareUrl)}">\${utils.escapeHtml(shareUrl)}</span>
                         \${hasCode ? '<span class="share-code-display">🔑 ' + utils.escapeHtml(item.code) + '</span>' : ''}
                         <span style="font-size: 12px; color: var(--gray-500);">⏱ \${expiryLabel}</span>
                         <button class="btn btn-sm btn-outline" onclick="app.copyText('\${utils.escapeHtml(fullShareUrl)}')" data-tooltip="Copy link">📋</button>
