@@ -22,10 +22,6 @@ import {
 } from './helpers.js';
 
 export async function handleRequest(request, env) {
-    // ============================================================
-    // INITIALIZATION & VALIDATION
-    // ============================================================
-
     const JSONBIN = env.JSONBIN;
     if (!JSONBIN) return jsonError("Missing env.JSONBIN", 500);
 
@@ -41,17 +37,13 @@ export async function handleRequest(request, env) {
         const originPathname = urlObj.pathname;
         const { searchParams } = urlObj;
 
-        // Forward logic
         const forwardPath = `/_forward/${APIKEY}`;
         const urlSplitMarker = env.URLSPLIT || "/urlsplit";
         const isForward = originPathname.startsWith(forwardPath);
         let pathname = originPathname;
         let forwardPathname = "/";
 
-        // ============================================================
-        // ADMIN PANEL
-        // ============================================================
-        if (originPathname === '/' && !searchParams.has("list") ) {
+        if (originPathname === '/' && !searchParams.has("list")) {
             return new Response(getAdminHTML(env), {
                 headers: {
                     'Content-Type': 'text/html; charset=utf-8',
@@ -78,23 +70,14 @@ export async function handleRequest(request, env) {
         const q = searchParams.get("q");
         const sParam = searchParams.get("s");
 
-        // ============================================================
-        // PUBLIC TOKEN DOWNLOAD
-        // ============================================================
         if (pathname.startsWith("/_download/")) {
-            return await handleTokenDownload(request, env, crypt);
+            return await handleTokenDownload(request, env);
         }
 
-        // ============================================================
-        // FORWARD/PROXY HANDLER
-        // ============================================================
         if (isForward) {
             return await handleForward(pathname, forwardPathname, request, env, { crypt, q });
         }
 
-        // ============================================================
-        // AUTHENTICATION
-        // ============================================================
         const authHeader = headers.get("Authorization");
         const keyFromQuery = searchParams.get("key");
         const expectedHeader = `Bearer ${APIKEY}`;
@@ -107,17 +90,13 @@ export async function handleRequest(request, env) {
             return jsonError("Missing Authorization or key", 401);
         }
 
-        // ============================================================
-        // OPERATION ROUTING
-        // ============================================================
-
         const listFlag = searchParams.has("list");
         const encbase64 = searchParams.has("b64");
         const redirect = searchParams.has("redirect") || searchParams.has("r");
         const isJson = pathname.endsWith(".json");
 
         if (listFlag) {
-            return await handleList(searchParams,env);
+            return await handleList(searchParams, env);
         }
 
         if (request.method === "GET") {
@@ -144,89 +123,82 @@ export async function handleRequest(request, env) {
 // ============================================================
 // HANDLER FUNCTIONS
 // ============================================================
-async function handleTokenDownload(request, env, ) {
+
+async function handleTokenDownload(request, env) {
     const url = new URL(request.url);
     const { searchParams } = url;
-  
     const pathname = url.pathname;
-    // const code = searchParams.get("c") || "";
     const shareCode = searchParams.get("share") || "";
-  
-  
-    console.log(`shareCode=${shareCode}`)
-  
+
+    console.log(`shareCode=${shareCode}`);
+
     const link = `${decodeURIComponent(pathname)}`.slice(11);
-    
     const shareLink = decodeURIComponent(await decryptData(link, shareCode));
-    
-  
-    // const shareLink = await decryptData(link, code);
-  
+
     console.log(`handleTokenDownload link ${link}`);
     console.log(`handleTokenDownload shareLink ${shareLink}`);
     const path = shareLink.slice(4);
     console.log(`handleTokenDownload path ${path}`);
 
-    if(shareLink.startsWith("/_s/")){
-      console.log("path",path);
-  
-      const result = await env.JSONBIN.getWithMetadata(path, "arrayBuffer");
-      if (!result || !result.value) return jsonError("Source item not found", 404);
-      const newMeta = result.metadata || {};
-  
-      console.log("newMeta",newMeta);
-      
-      if(newMeta.expiresSec == 0){
-        return jsonError("Share is Disabled", 404);
-      }
-      let shared_ok = false;
-      if (shareCode == newMeta.code){
-        if(newMeta.expiresSec == 1){
-            shared_ok = true;
-          }else{
-            const now = Date.now();
-            const dt = now - newMeta.shareActivateStamp;
-            const sec = dt/1000;
-            console.log("sec",sec);
-            if(sec > newMeta.expiresSec){
-              shared_ok = false;
-            }else{
-              shared_ok = true;
+    if (shareLink.startsWith("/_s/")) {
+        console.log("path", path);
+
+        const result = await env.JSONBIN.getWithMetadata(path, "arrayBuffer");
+        if (!result || !result.value) return jsonError("Source item not found", 404);
+        const newMeta = result.metadata || {};
+
+        console.log("newMeta", newMeta);
+
+        if (newMeta.expiresSec == 0) {
+            return jsonError("Share is Disabled", 404);
+        }
+
+        let shared_ok = false;
+        if (shareCode == newMeta.code) {
+            if (newMeta.expiresSec == 1) {
+                shared_ok = true;
+            } else {
+                const now = Date.now();
+                const dt = now - newMeta.shareActivateStamp;
+                const sec = dt / 1000;
+                console.log("sec", sec);
+                if (sec > newMeta.expiresSec) {
+                    shared_ok = false;
+                } else {
+                    shared_ok = true;
+                }
             }
-          }
-      }else{
-        return jsonError("shareCode is Wrong", 404);
-      }
-  
-      if(shared_ok){
-     
-        const filename = sanitizeFilename(newMeta.filename || path.split("/").pop() || "data");
-  
-        return new Response(result.value, {
-          headers: {
-            "Content-Type": newMeta.filetype,
-            "Content-Disposition": `attachment; filename="${sanitizeFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(sanitizeFilename(filename))}`,
-            "Content-Length": String(result.value.byteLength || 0),
-            "Cache-Control": "no-store"
-          }
-        });
-      }
-    }else{
-      return jsonError("shareCode Expires", 404);
+        } else {
+            return jsonError("shareCode is Wrong", 404);
+        }
+
+        if (shared_ok) {
+            const filename = sanitizeFilename(newMeta.filename || path.split("/").pop() || "data");
+
+            return new Response(result.value, {
+                headers: {
+                    "Content-Type": newMeta.filetype,
+                    "Content-Disposition": `attachment; filename="${sanitizeFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(sanitizeFilename(filename))}`,
+                    "Content-Length": String(result.value.byteLength || 0),
+                    "Cache-Control": "no-store"
+                }
+            });
+        }
     }
+
+    return jsonError("shareCode Expires", 404);
 }
+
 async function handleForward(pathname, forwardPathname, request, env, { crypt, q }) {
-    // ... (Keep existing forward logic as is, omitted for brevity but should be included in final) ...
-    // Using simple version here for space, assume previous code exists
     const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
     if (!result?.value) return jsonError(`Forward config not found`, 404);
-    
+
     let text = bufferToText(result.value);
     if (crypt) text = await decryptAndDecode(text, crypt);
-    
+
     let config;
     try { config = JSON.parse(text); } catch (e) { return jsonError("Invalid Config", 500); }
-    
+
     let targetUrl = (q && config[q]) ? config[q] : config.url;
     if (!targetUrl) return jsonError("No target URL", 404);
 
@@ -236,11 +208,10 @@ async function handleForward(pathname, forwardPathname, request, env, { crypt, q
         allowedOrigins: ['*'],
         timeout: 100000
     };
-    
+
     const processedRequest = await processRequest(request, forwardConfig);
     const response = await forwardRequest(processedRequest, forwardConfig);
-    
-    // Redirect HTML logic
+
     const content_type = response.headers.get("content-type");
     if (content_type && content_type.includes("text/html")) {
         return new Response(null, {
@@ -252,7 +223,6 @@ async function handleForward(pathname, forwardPathname, request, env, { crypt, q
 }
 
 async function handleList(searchParams, env) {
-
     const list = await env.JSONBIN.list();
     const items = [];
     for (const key of list.keys) {
@@ -262,22 +232,21 @@ async function handleList(searchParams, env) {
             size: meta.size || "?",
             filetype: meta.filetype || "json/raw",
             filename: meta.filename || "-",
+            shareLink: meta.shareLink || "",
+            code: meta.code || "",
+            expiresSec: meta.expiresSec ?? "",
+            shareActivateStamp: meta.shareActivateStamp || "",
             encrypted: meta.crypt ? "yes" : "no"
         });
     }
 
     if (searchParams.has("json_response")) {
-        var jsonArray = JSON.parse(JSON.stringify(items))
-        return jsonOK(jsonArray);
-
-    }else{
+        return jsonOK(items);
+    } else {
         const header = `${"name".padEnd(20)}  ${"filename".padEnd(20)}  ${"filetype".padEnd(20)}  ${"encrypted".padEnd(10)}\n${"-".repeat(80)}\n`;
-
         const rows = items.map(r => `${r.name.padEnd(20)}  ${r.filename.padEnd(20)}  ${r.filetype.padEnd(25)}  ${r.encrypted.padEnd(10)}  ${r.size}`).join("\n");
         return new Response(header + rows + "\n", { headers: { "Content-Type": "text/plain" } });
     }
-
-
 }
 
 async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect, isJson, searchParams }) {
@@ -286,7 +255,6 @@ async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect,
     const isRaw = storeHint === "raw";
     const wantDownload = searchParams.has("download") || searchParams.has("dl");
 
-    // JSON GET
     if (!isRaw) {
         const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
         if (!result?.value) return jsonError(`${pathname} Not Found`, 404);
@@ -304,7 +272,7 @@ async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect,
         }
 
         const json = JSON.parse(text);
-        
+
         if (wantDownload) {
             return createDownloadToken(pathname, "application/json", searchParams, env, crypt);
         }
@@ -324,7 +292,6 @@ async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect,
         return new Response(text, { headers: { "Content-Type": "application/json" } });
     }
 
-    // RAW GET
     const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
     if (!result?.value) return jsonError(`${pathname} Not Found`, 404);
 
@@ -332,7 +299,7 @@ async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect,
     const meta = result.metadata || {};
     const filetype = meta.filetype || "application/octet-stream";
     let filename = searchParams.get("filename") || meta.filename || pathname.split("/").pop() || "file";
-    
+
     try {
         if (meta.crypt) {
             if (!crypt) return jsonError(`${pathname} is encrypted`, 403);
@@ -358,21 +325,16 @@ async function handleGet(pathname, env, { sParam, q, crypt, encbase64, redirect,
     });
 }
 
-/**
- * Handle POST/PATCH operation - store or update data
- */
 async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64, isJson }) {
     const { searchParams } = new URL(request.url);
     const contentType = request.headers.get("content-type") || "";
-    let filename = searchParams.get("filename")|| pathname.split("/").pop() || "file";
+    let filename = searchParams.get("filename") || pathname.split("/").pop() || "file";
     filename = filename.trim();
 
-    // ==========================================
-    // 1. RENAME (MOVE) LOGIC
-    // ==========================================
+    // RENAME
     if (searchParams.has("rename_to")) {
         const newPath = searchParams.get("rename_to").trim();
-        
+
         if (!newPath || !newPath.startsWith("/")) {
             return jsonError("New path must start with /", 400);
         }
@@ -380,68 +342,55 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
             return jsonError("New path is same as current", 400);
         }
 
-        // Check if destination already exists to prevent accidental overwrite
         const destExists = await env.JSONBIN.get(newPath);
         if (destExists && !searchParams.has("force")) {
             return jsonError("Destination already exists. Use ?force=true to overwrite.", 409);
         }
 
-        // Get existing data (Value + Metadata)
         const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
         if (!result || !result.value) return jsonError("Source item not found", 404);
 
-        // Save to new key
-        // We preserve the existing metadata (including encryption status, filetype, etc.)
-        // We update the filename in metadata to match the new path name
         const newMeta = result.metadata || {};
         newMeta.filename = filename;
 
-        await env.JSONBIN.put(newPath, result.value, {
-            metadata: newMeta
-        });
-
-        // Delete old key
+        await env.JSONBIN.put(newPath, result.value, { metadata: newMeta });
         await env.JSONBIN.delete(pathname);
 
         return jsonOK({ renamed: true, from: pathname, to: newPath });
     }
 
-    // ==========================================
-    // 2. SET TYPE (METADATA ONLY) LOGIC
-    // ==========================================
+    // SET TYPE
     if (searchParams.has("set_type")) {
         const newType = searchParams.get("set_type");
         const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
         if (!result || !result.value) return jsonError("Item not found", 404);
 
         const meta = result.metadata || {};
-        meta.filetype = newType; 
-        
+        meta.filetype = newType;
+
         await env.JSONBIN.put(pathname, result.value, { metadata: meta });
         return jsonOK({ ok: true, type: newType, message: "Type updated" });
     }
+
+    // SET NAME
     if (searchParams.has("set_name")) {
         const newName = searchParams.get("set_name");
         const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
         if (!result || !result.value) return jsonError("Item not found", 404);
 
         const meta = result.metadata || {};
-        meta.filename = newName; 
-        
+        meta.filename = newName;
+
         await env.JSONBIN.put(pathname, result.value, { metadata: meta });
-        return jsonOK({ ok: true, type: newType, message: "Name updated" });
+        return jsonOK({ ok: true, name: newName, message: "Name updated" });
     }
-    // ==========================================
-    // 3. STANDARD STORE LOGIC (JSON/RAW)
-    // ==========================================
-    
-    // Determine storage type
+
+    // STANDARD STORE
     let storetype = sParam;
     if (!storetype) {
         storetype = (q || isJson || contentType.includes("json")) ? "json" : "raw";
     }
 
-    // Store as JSON
     if (storetype === "json") {
         let existing = {};
         const result = await env.JSONBIN.getWithMetadata(pathname);
@@ -450,9 +399,9 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
             const meta = result.metadata || {};
             let val = result.value;
             if (meta.crypt && crypt) {
-                try { val = await decryptData(val, crypt); } catch(e) {}
+                try { val = await decryptData(val, crypt); } catch (e) { }
             }
-            try { existing = JSON.parse(val); } catch (e) {}
+            try { existing = JSON.parse(val); } catch (e) { }
         }
 
         let bodyText = await request.text();
@@ -466,20 +415,13 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
         let dataToStore = JSON.stringify(existing);
         if (crypt) dataToStore = await encryptData(dataToStore, crypt);
 
-        await env.JSONBIN.put(pathname, dataToStore, { metadata: { crypt: !!crypt,filename, filetype: "application/json" } });
+        await env.JSONBIN.put(pathname, dataToStore, { metadata: { crypt: !!crypt, filename, filetype: "application/json" } });
         return jsonOK({ ok: true, type: "json", encrypted: !!crypt });
     }
 
-    // Store as raw binary
     if (storetype === "raw") {
         const buffer = await request.arrayBuffer();
         let toStore = buffer;
-        
-        // let filename = pathname.split("/").pop() || "file";
-        // if (!filename.includes(".")) {
-        //     const ext = contentType.split("/")[1] || "bin";
-        //     filename = `${filename}.${ext}`;
-        // }
 
         if (crypt) {
             const encrypted = await encryptBinary(buffer, crypt);
@@ -496,59 +438,53 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
         });
         return jsonOK({ stored: filename, type: "raw", size: toStore.byteLength, encrypted: !!crypt });
     }
+
     return jsonError("Unsupported store type", 400);
 }
 
-
 // ============================================================
-// HELPER: DOWNLOAD TOKEN
+// DOWNLOAD TOKEN
 // ============================================================
 
 async function createDownloadToken(pathname, filetype, searchParams, env, crypt, filename = null) {
     const filenameForToken = sanitizeFilename(filename || pathname.split("/").pop() || "data");
-    // const token = generateToken();
-    
+
     const code = searchParams.get("code") || "";
     const expiresSec = parseInt(searchParams.get("expires") || "0", 10) || 0;
-    
+
     const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
     if (!result || !result.value) return jsonError("Source item not found", 404);
     const newMeta = result.metadata || {};
-    
+
     const link = `/_s/${encodeURIComponent(pathname)}`;
+    console.log(`link:${link}`);
     const shareLink = `/_download/${encodeURIComponent(await encryptData(link, code))}?share=${code}`;
-    
-    newMeta.code = code ;
+
+    newMeta.code = code;
     newMeta.shareActivateStamp = Date.now();
-    newMeta.expiresSec = expiresSec ;
+    newMeta.expiresSec = expiresSec;
     newMeta.shareLink = shareLink;
-    console.log("createDownloadToken searchParams:", searchParams);
 
     console.log("createDownloadToken newMeta:", newMeta);
-    console.log("createDownloadToken link:", link);
-    console.log("createDownloadToken shareLink:", shareLink);
-    console.log("createDownloadToken code:", code);
-    console.log("createDownloadToken expiresSec:", expiresSec);
 
-    
-    await env.JSONBIN.put(pathname, result.value, {
-        metadata: newMeta
-    });
+    await env.JSONBIN.put(pathname, result.value, { metadata: newMeta });
+
     if (searchParams.has("json_response")) {
         return jsonOK({
             url: `${shareLink}`,
             filename: filenameForToken
         });
     }
-    return new Response(null, {
-    status: 302,
-    headers: {
-      Location: `/${shareLink}`,
-      "Cache-Control": "no-store"
-    }
-    });
 
+    return new Response(null, {
+        status: 302,
+        headers: {
+            Location: `/${shareLink}`,
+            "Cache-Control": "no-store"
+        }
+    });
 }
+
 // ============================================================
 // ADMIN PANEL HTML
 // ============================================================
@@ -562,9 +498,9 @@ function getAdminHTML(env) {
     <title>JSONBIN Admin Panel</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
     <style>
-        :root { 
-            --primary: #667eea; 
-            --primary-dark: #5568d3; 
+        :root {
+            --primary: #667eea;
+            --primary-dark: #5568d3;
             --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             --success: #10b981;
             --danger: #ef4444;
@@ -576,21 +512,20 @@ function getAdminHTML(env) {
             --gray-700: #374151;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-            background: var(--bg-gradient); 
-            min-height: 100vh; 
-            padding: 20px; 
-            color: #333; 
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            padding: 20px;
+            color: #333;
         }
         .container { max-width: 1400px; margin: 0 auto; }
         .hidden { display: none !important; }
-        
-        /* Loading */
-        .loading { 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
+
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
             padding: 40px;
             color: var(--gray-500);
         }
@@ -604,18 +539,17 @@ function getAdminHTML(env) {
             margin-right: 10px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        
-        /* Panels */
-        .panel { 
-            background: white; 
-            border-radius: 12px; 
-            padding: 24px; 
-            margin-bottom: 20px; 
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1); 
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
-        .header { 
-            margin-bottom: 20px; 
-            color: white; 
+        .header {
+            margin-bottom: 20px;
+            color: white;
             text-shadow: 0 2px 4px rgba(0,0,0,0.2);
             display: flex;
             justify-content: space-between;
@@ -623,54 +557,84 @@ function getAdminHTML(env) {
         }
         .header h1 { font-size: 1.5rem; }
         .auth-section { max-width: 400px; margin: 40px auto; text-align: center; }
-        
-        /* Grid */
-        .content-grid { 
-            display: grid; 
-            grid-template-columns: 350px 1fr; 
-            gap: 20px; 
-            height: calc(100vh - 180px); 
+
+        .content-grid {
+            display: grid;
+            grid-template-columns: 380px 1fr;
+            gap: 20px;
+            height: calc(100vh - 180px);
         }
-        @media (max-width: 968px) { 
-            .content-grid { grid-template-columns: 1fr; height: auto; } 
+        @media (max-width: 968px) {
+            .content-grid { grid-template-columns: 1fr; height: auto; }
         }
-        
-        /* List */
+
         .list-panel { display: flex; flex-direction: column; height: 100%; }
-        .items-list { 
-            flex: 1; 
-            overflow-y: auto; 
-            border: 1px solid var(--gray-200); 
-            border-radius: 8px; 
-            margin-top: 10px; 
+        .items-list {
+            flex: 1;
+            overflow-y: auto;
+            border: 1px solid var(--gray-200);
+            border-radius: 8px;
+            margin-top: 10px;
         }
-        .item { 
-            padding: 12px; 
-            border-bottom: 1px solid #f0f0f0; 
-            cursor: pointer; 
-            transition: all 0.2s ease; 
+        .item {
+            padding: 12px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
+            transition: all 0.2s ease;
         }
         .item:hover { background: #f8f9fa; }
         .item:focus { outline: 2px solid var(--primary); outline-offset: -2px; }
         .item.active { background: #eff6ff; border-left: 4px solid var(--primary); }
         .item-header { display: flex; justify-content: space-between; align-items: center; }
         .item-name { font-weight: 500; font-size: 14px; word-break: break-all; }
-        .item-meta { 
-            font-size: 11px; 
-            color: var(--gray-600); 
-            margin-top: 4px; 
-            display: flex; 
-            gap: 8px; 
+        .item-meta {
+            font-size: 11px;
+            color: var(--gray-600);
+            margin-top: 4px;
+            display: flex;
+            gap: 8px;
             align-items: center;
+            flex-wrap: wrap;
         }
-        
-        /* Badges */
-        .badge { 
-            padding: 2px 6px; 
-            border-radius: 4px; 
-            font-size: 10px; 
-            font-weight: 600; 
-            text-transform: uppercase; 
+        .item-share-row {
+            font-size: 10px;
+            color: var(--gray-500);
+            margin-top: 4px;
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .item-share-row .share-link-text {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            background: #f0fdf4;
+            padding: 1px 6px;
+            border-radius: 3px;
+            border: 1px solid #bbf7d0;
+            cursor: pointer;
+            color: #166534;
+        }
+        .item-share-row .share-link-text:hover {
+            background: #dcfce7;
+        }
+        .item-share-row .share-code-text {
+            background: #fef3c7;
+            padding: 1px 6px;
+            border-radius: 3px;
+            border: 1px solid #fde68a;
+            color: #92400e;
+            font-family: monospace;
+        }
+
+        .badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
         }
         .badge-json { background: #dbeafe; color: #1e40af; }
         .badge-md { background: #fce7f3; color: #9d174d; }
@@ -679,41 +643,41 @@ function getAdminHTML(env) {
         .badge-video { background: #e0e7ff; color: #4338ca; }
         .badge-raw { background: var(--gray-100); color: var(--gray-700); }
         .badge-lock { background: #fef3c7; color: #92400e; }
-        
-        /* Forms */
+        .badge-shared { background: #d1fae5; color: #065f46; }
+
         .form-group { margin-bottom: 15px; }
-        .form-group label { 
-            display: block; 
-            margin-bottom: 5px; 
-            font-size: 0.875rem; 
-            font-weight: 500; 
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 0.875rem;
+            font-weight: 500;
             color: var(--gray-700);
         }
-        .form-control { 
-            width: 100%; 
-            padding: 10px 12px; 
-            border: 1px solid var(--gray-200); 
-            border-radius: 6px; 
-            font-size: 14px; 
+        .form-control {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--gray-200);
+            border-radius: 6px;
+            font-size: 14px;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-        .form-control:focus { 
-            outline: none; 
-            border-color: var(--primary); 
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
-        textarea.form-control { 
-            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace; 
-            min-height: 400px; 
-            resize: vertical; 
+        textarea.form-control {
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            min-height: 400px;
+            resize: vertical;
             line-height: 1.5;
         }
-        .md-preview { 
-            border: 1px solid var(--gray-200); 
-            border-radius: 6px; 
-            padding: 20px; 
-            min-height: 400px; 
-            background: #fff; 
+        .md-preview {
+            border: 1px solid var(--gray-200);
+            border-radius: 6px;
+            padding: 20px;
+            min-height: 400px;
+            background: #fff;
             overflow-y: auto;
             line-height: 1.6;
         }
@@ -721,8 +685,7 @@ function getAdminHTML(env) {
         .md-preview p { margin: 0.5em 0; }
         .md-preview code { background: var(--gray-100); padding: 2px 6px; border-radius: 4px; }
         .md-preview pre { background: var(--gray-100); padding: 12px; border-radius: 6px; overflow-x: auto; }
-        
-        /* Audio Player */
+
         .audio-container {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border-radius: 16px;
@@ -739,29 +702,17 @@ function getAdminHTML(env) {
             0%, 100% { transform: scale(1); }
             50% { transform: scale(1.05); }
         }
-        .audio-player {
-            width: 100%;
-            max-width: 500px;
-            margin: 20px auto;
-        }
-        .audio-player audio {
-            width: 100%;
-            border-radius: 30px;
-        }
-        .audio-info {
-            margin-top: 15px;
-            font-size: 0.9rem;
-            opacity: 0.9;
-        }
-        
-        /* Toolbar */
-        .editor-header { 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            padding-bottom: 15px; 
-            border-bottom: 1px solid #eee; 
-            margin-bottom: 15px; 
+        .audio-player { width: 100%; max-width: 500px; margin: 20px auto; }
+        .audio-player audio { width: 100%; border-radius: 30px; }
+        .audio-info { margin-top: 15px; font-size: 0.9rem; opacity: 0.9; }
+
+        .editor-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 15px;
         }
         .editor-header h2 {
             font-size: 1rem;
@@ -770,29 +721,64 @@ function getAdminHTML(env) {
             text-overflow: ellipsis;
             white-space: nowrap;
         }
-        .type-select { 
-            padding: 6px 10px; 
-            border-radius: 6px; 
-            border: 1px solid var(--gray-200); 
-            font-size: 12px; 
-            background: white; 
-            cursor: pointer; 
+        .type-select {
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--gray-200);
+            font-size: 12px;
+            background: white;
+            cursor: pointer;
         }
         .type-select:focus { outline: none; border-color: var(--primary); }
-        
-        /* Buttons */
-        .btn { 
-            padding: 8px 16px; 
-            border: none; 
-            border-radius: 6px; 
-            cursor: pointer; 
-            font-size: 14px; 
-            font-weight: 500; 
-            display: inline-flex; 
-            align-items: center; 
+
+        .share-info-bar {
+            background: #f0fdf4;
+            border: 1px solid #bbf7d0;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .share-info-bar .share-label {
+            font-weight: 600;
+            color: #166534;
+        }
+        .share-info-bar .share-url {
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-family: monospace;
+            font-size: 12px;
+            color: #374151;
+        }
+        .share-info-bar .share-code-display {
+            background: #fef3c7;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            display: inline-flex;
+            align-items: center;
             justify-content: center;
-            gap: 6px; 
-            text-decoration: none; 
+            gap: 6px;
+            text-decoration: none;
             transition: all 0.2s ease;
         }
         .btn:disabled { opacity: 0.6; cursor: not-allowed; }
@@ -807,69 +793,64 @@ function getAdminHTML(env) {
         .btn-secondary:hover:not(:disabled) { background: var(--gray-600); }
         .btn-outline { background: white; border: 1px solid var(--gray-200); color: var(--gray-700); }
         .btn-outline:hover:not(:disabled) { background: var(--gray-100); }
-        
-        .editor-actions { 
-            margin-top: 20px; 
-            display: flex; 
-            gap: 10px; 
-            border-top: 1px solid #eee; 
-            padding-top: 20px; 
-            flex-wrap: wrap; 
+        .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+        .editor-actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+            flex-wrap: wrap;
         }
-        
-        /* Tabs */
+
         .tabs { display: flex; gap: 2px; margin-bottom: -1px; }
-        .tab { 
-            padding: 10px 20px; 
-            cursor: pointer; 
-            border: 1px solid transparent; 
-            border-radius: 6px 6px 0 0; 
-            background: var(--gray-100); 
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: 1px solid transparent;
+            border-radius: 6px 6px 0 0;
+            background: var(--gray-100);
             color: var(--gray-600);
             font-size: 14px;
             transition: all 0.2s;
         }
         .tab:hover { background: var(--gray-200); }
-        .tab.active { 
-            background: white; 
-            border-color: var(--gray-200); 
-            color: var(--primary); 
-            border-bottom: 1px solid white; 
-            font-weight: 600; 
+        .tab.active {
+            background: white;
+            border-color: var(--gray-200);
+            color: var(--primary);
+            border-bottom: 1px solid white;
+            font-weight: 600;
         }
-        
-        /* Stats */
+
         .stats { display: flex; gap: 10px; margin-bottom: 10px; }
-        .stat-card { 
-            background: #f8f9fa; 
-            padding: 12px; 
-            border-radius: 8px; 
-            flex: 1; 
-            text-align: center; 
+        .stat-card {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 8px;
+            flex: 1;
+            text-align: center;
         }
         .stat-val { font-size: 1.25rem; font-weight: bold; color: var(--primary); }
         .stat-lbl { font-size: 0.7rem; color: var(--gray-600); text-transform: uppercase; letter-spacing: 0.5px; }
-        
-        /* Modal */
-        .modal-overlay { 
-            position: fixed; 
-            top: 0; 
-            left: 0; 
-            right: 0; 
-            bottom: 0; 
-            background: rgba(0,0,0,0.5); 
-            display: flex; 
-            justify-content: center; 
-            align-items: center; 
+
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
             z-index: 1000;
             animation: fadeIn 0.2s ease;
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .modal { 
-            background: white; 
-            padding: 24px; 
-            border-radius: 12px; 
-            width: 420px; 
+        .modal {
+            background: white;
+            padding: 24px;
+            border-radius: 12px;
+            width: 420px;
             max-width: 90%;
             max-height: 90vh;
             overflow-y: auto;
@@ -878,12 +859,11 @@ function getAdminHTML(env) {
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } }
         .modal h3 { margin-bottom: 20px; color: var(--gray-700); }
         .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
-        
-        /* Alerts */
-        .alert { 
-            padding: 12px 16px; 
-            border-radius: 8px; 
-            margin-bottom: 15px; 
+
+        .alert {
+            padding: 12px 16px;
+            border-radius: 8px;
+            margin-bottom: 15px;
             font-size: 0.875rem;
             display: flex;
             align-items: center;
@@ -892,16 +872,14 @@ function getAdminHTML(env) {
         .alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
         .alert-success { background: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; }
         .alert-warning { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
-        
-        /* Empty State */
+
         .empty-state {
             text-align: center;
             padding: 60px 20px;
             color: var(--gray-500);
         }
         .empty-state-icon { font-size: 3rem; margin-bottom: 10px; }
-        
-        /* Keyboard Shortcut Hints */
+
         kbd {
             background: var(--gray-100);
             padding: 2px 6px;
@@ -910,11 +888,8 @@ function getAdminHTML(env) {
             border: 1px solid var(--gray-200);
             font-family: monospace;
         }
-        
-        /* Tooltip */
-        [data-tooltip] {
-            position: relative;
-        }
+
+        [data-tooltip] { position: relative; }
         [data-tooltip]:hover::after {
             content: attr(data-tooltip);
             position: absolute;
@@ -937,7 +912,7 @@ function getAdminHTML(env) {
             <h1>🗄️ JSONBIN Admin</h1>
             <button id="logoutBtn" class="btn btn-outline hidden" onclick="app.logout()">Logout</button>
         </div>
-        
+
         <div id="authSection" class="panel auth-section">
             <h2 style="margin-bottom: 20px;">Authentication</h2>
             <form onsubmit="event.preventDefault(); app.login();">
@@ -947,7 +922,7 @@ function getAdminHTML(env) {
                 <button type="submit" class="btn btn-primary" style="width: 100%;">Connect</button>
             </form>
         </div>
-        
+
         <div id="mainContent" class="hidden">
             <div class="content-grid">
                 <div class="panel list-panel">
@@ -964,6 +939,10 @@ function getAdminHTML(env) {
                             <div class="stat-val" id="stEnc">0</div>
                             <div class="stat-lbl">Locked</div>
                         </div>
+                        <div class="stat-card">
+                            <div class="stat-val" id="stShared">0</div>
+                            <div class="stat-lbl">Shared</div>
+                        </div>
                     </div>
                     <div style="display:flex; gap:8px; margin-bottom:10px">
                         <button class="btn btn-primary" style="flex:1" onclick="app.newItem()" data-tooltip="Create new item">+ New</button>
@@ -972,7 +951,7 @@ function getAdminHTML(env) {
                     <input type="text" id="searchBox" class="form-control" placeholder="🔍 Search items..." oninput="app.handleSearch()">
                     <div id="itemsList" class="items-list"></div>
                 </div>
-                
+
                 <div class="panel" style="display: flex; flex-direction: column;">
                     <div id="editorHeader" class="editor-header hidden">
                         <h2 id="editorTitle" title="">Select Item</h2>
@@ -993,6 +972,7 @@ function getAdminHTML(env) {
                             <option value="application/octet-stream">Binary</option>
                         </select>
                     </div>
+                    <div id="shareInfoBar"></div>
                     <div id="alertArea"></div>
                     <div id="editorContainer" style="flex: 1; display: flex; flex-direction: column;">
                         <div class="empty-state">
@@ -1010,6 +990,24 @@ function getAdminHTML(env) {
     <div id="shareModal" class="hidden modal-overlay" onclick="app.closeModalOnBackdrop(event)">
         <div class="modal" onclick="event.stopPropagation()">
             <h3>🔗 Share Public Link</h3>
+            <div id="existingShareInfo" class="hidden" style="margin-bottom: 15px;">
+                <div class="alert alert-success" style="margin-bottom: 10px;">
+                    This item already has an active share link
+                </div>
+                <div class="form-group">
+                    <label>Current Share URL</label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text" id="existingShareUrl" class="form-control" readonly style="flex: 1; font-size: 12px;">
+                        <button class="btn btn-secondary btn-sm" onclick="app.copyExistingShareUrl()" data-tooltip="Copy">📋</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Current Code</label>
+                    <input type="text" id="existingShareCode" class="form-control" readonly style="font-family: monospace;">
+                </div>
+                <hr style="margin: 15px 0; border: none; border-top: 1px solid #eee;">
+                <p style="font-size: 13px; color: var(--gray-600);">Generate a new link below to replace the current one:</p>
+            </div>
             <div class="form-group">
                 <label>Expires In</label>
                 <select id="shareExpiry" class="form-control">
@@ -1025,7 +1023,7 @@ function getAdminHTML(env) {
                 <input type="text" class="form-control" id="sharedCode" placeholder="Leave empty for no password">
             </div>
             <div class="form-group hidden" id="shareResultGroup">
-                <label>Share URL</label>
+                <label>New Share URL</label>
                 <div style="display: flex; gap: 8px;">
                     <input type="text" id="shareUrl" class="form-control" readonly style="flex: 1;">
                     <button class="btn btn-secondary" onclick="app.copyShareUrl()" data-tooltip="Copy to clipboard">📋</button>
@@ -1058,7 +1056,6 @@ function getAdminHTML(env) {
     </div>
 
     <script>
-        // ================== UTILITY FUNCTIONS ==================
         const utils = {
             escapeHtml(str) {
                 if (!str) return '';
@@ -1066,7 +1063,7 @@ function getAdminHTML(env) {
                 div.textContent = str;
                 return div.innerHTML;
             },
-            
+
             debounce(fn, delay) {
                 let timer;
                 return (...args) => {
@@ -1074,7 +1071,7 @@ function getAdminHTML(env) {
                     timer = setTimeout(() => fn(...args), delay);
                 };
             },
-            
+
             formatSize(bytes) {
                 if (!bytes || bytes === '?') return '?';
                 const num = parseInt(bytes, 10);
@@ -1094,11 +1091,23 @@ function getAdminHTML(env) {
             getAudioIcon(type) {
                 if (type.includes('wav')) return '🎵';
                 if (type.includes('ogg')) return '🎶';
-                return '🎧'; // mp3 and others
+                return '🎧';
+            },
+
+            formatExpiry(expiresSec, shareActivateStamp) {
+                if (expiresSec === 0 || expiresSec === '0') return 'Disabled';
+                if (expiresSec === 1 || expiresSec === '1') return 'Forever';
+                if (!shareActivateStamp) return expiresSec + 's';
+                const elapsed = (Date.now() - shareActivateStamp) / 1000;
+                const remaining = expiresSec - elapsed;
+                if (remaining <= 0) return 'Expired';
+                if (remaining < 60) return Math.ceil(remaining) + 's left';
+                if (remaining < 3600) return Math.ceil(remaining / 60) + 'm left';
+                if (remaining < 86400) return Math.ceil(remaining / 3600) + 'h left';
+                return Math.ceil(remaining / 86400) + 'd left';
             }
         };
 
-        // ================== MAIN APP ==================
         const app = {
             key: '',
             items: [],
@@ -1113,7 +1122,7 @@ function getAdminHTML(env) {
                 }
                 this.key = key;
                 localStorage.setItem('jsonbin_key', key);
-                
+
                 this.loadItems().then(ok => {
                     if (ok) {
                         document.getElementById('authSection').classList.add('hidden');
@@ -1138,15 +1147,27 @@ function getAdminHTML(env) {
             async loadItems() {
                 try {
                     document.getElementById('itemsList').innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
-                    
-                    const res = await fetch(\`/?list&key=\${encodeURIComponent(this.key)}\`);
+
+                    const res = await fetch(\`/?list&json_response=1&key=\${encodeURIComponent(this.key)}\`);
                     if (!res.ok) {
                         const errText = await res.text();
                         throw new Error(res.status === 401 ? 'Invalid API key' : errText);
                     }
-                    
-                    const text = await res.text();
-                    this.items = this.parseList(text);
+
+                    const json = await res.json();
+
+                    this.items = json.map(item => ({
+                        name: item.name || '',
+                        filename: item.filename || '-',
+                        type: item.filetype || 'application/octet-stream',
+                        enc: item.encrypted === 'yes',
+                        size: item.size || '?',
+                        shareLink: item.shareLink || '',
+                        code: item.code || '',
+                        expiresSec: item.expiresSec ?? '',
+                        shareActivateStamp: item.shareActivateStamp || ''
+                    }));
+
                     this.renderList();
                     this.updateStats();
                     return true;
@@ -1157,31 +1178,17 @@ function getAdminHTML(env) {
                 }
             },
 
-            parseList(txt) {
-                const lines = txt.split('\\n').filter(l => l.trim() && !l.includes('---'));
-                return lines.slice(1).map(line => {
-                    const parts = line.split(/\\s{2,}/);
-                    return {
-                        name: (parts[0] || '').trim(),
-                        filename: (parts[1] || '').trim() || '-',
-                        type: (parts[2] || '').trim() || 'application/octet-stream',
-                        enc: (parts[3] || '').trim().toLowerCase() === 'yes',
-                        size: (parts[4] || '').trim() || '?'
-                    };
-                }).filter(i => i.name);
-            },
-
             handleSearch: utils.debounce(function() {
                 app.renderList();
             }, 200),
 
             renderList() {
                 const query = (document.getElementById('searchBox').value || '').toLowerCase();
-                const filtered = this.items.filter(i => 
-                    i.name.toLowerCase().includes(query) || 
+                const filtered = this.items.filter(i =>
+                    i.name.toLowerCase().includes(query) ||
                     i.filename.toLowerCase().includes(query)
                 );
-                
+
                 if (filtered.length === 0) {
                     document.getElementById('itemsList').innerHTML = \`
                         <div class="empty-state" style="padding: 40px;">
@@ -1195,20 +1202,40 @@ function getAdminHTML(env) {
                     const badgeType = this.getBadgeType(item.type);
                     const escapedName = utils.escapeHtml(item.name);
                     const escapedFilename = utils.escapeHtml(item.filename);
-                    
+                    const hasShare = item.shareLink && item.shareLink !== '-';
+                    const hasCode = item.code && item.code !== '-';
+
+                    let shareRow = '';
+                    if (hasShare) {
+                        const fullShareUrl = window.location.origin + item.shareLink;
+                        const expiryLabel = utils.formatExpiry(item.expiresSec, item.shareActivateStamp);
+                        shareRow = \`
+                            <div class="item-share-row">
+                                <span class="share-link-text" title="\${utils.escapeHtml(fullShareUrl)}" onclick="event.stopPropagation(); app.copyText('\${utils.escapeHtml(fullShareUrl)}')">
+                                    🔗 \${utils.escapeHtml(fullShareUrl.length > 40 ? fullShareUrl.slice(0, 37) + '...' : fullShareUrl)}
+                                </span>
+                                \${hasCode ? '<span class="share-code-text" title="Share code">🔑 ' + utils.escapeHtml(item.code) + '</span>' : ''}
+                                <span style="color: #6b7280; font-size: 10px;">⏱ \${expiryLabel}</span>
+                            </div>\`;
+                    }
+
                     return \`
-                        <div class="item \${isActive ? 'active' : ''}" 
+                        <div class="item \${isActive ? 'active' : ''}"
                              tabindex="0"
                              data-name="\${encodeURIComponent(item.name)}">
                             <div class="item-header">
                                 <span class="item-name" title="\${escapedName}">\${escapedName}</span>
-                                \${item.enc ? '<span class="badge badge-lock">🔒</span>' : ''}
+                                <span style="display: flex; gap: 4px;">
+                                    \${hasShare ? '<span class="badge badge-shared">🔗</span>' : ''}
+                                    \${item.enc ? '<span class="badge badge-lock">🔒</span>' : ''}
+                                </span>
                             </div>
                             <div class="item-meta">
                                 <span class="badge badge-\${badgeType}">\${badgeType.toUpperCase()}</span>
                                 <span title="\${escapedFilename}">\${escapedFilename.length > 15 ? escapedFilename.slice(0,12) + '...' : escapedFilename}</span>
                                 <span>\${utils.formatSize(item.size)}</span>
                             </div>
+                            \${shareRow}
                         </div>\`;
                 }).join('');
             },
@@ -1227,6 +1254,23 @@ function getAdminHTML(env) {
                 document.getElementById('stTotal').innerText = this.items.length;
                 document.getElementById('stJson').innerText = this.items.filter(i => i.type.includes('json')).length;
                 document.getElementById('stEnc').innerText = this.items.filter(i => i.enc).length;
+                document.getElementById('stShared').innerText = this.items.filter(i => i.shareLink && i.shareLink !== '-' && i.shareLink !== '').length;
+            },
+
+            // ================== COPY HELPER ==================
+            copyText(text) {
+                navigator.clipboard.writeText(text).then(() => {
+                    this.showAlert('Copied to clipboard!', 'success');
+                }).catch(() => {
+                    // Fallback
+                    const input = document.createElement('input');
+                    input.value = text;
+                    document.body.appendChild(input);
+                    input.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(input);
+                    this.showAlert('Copied to clipboard!', 'success');
+                });
             },
 
             // ================== OPEN/VIEW ==================
@@ -1242,17 +1286,20 @@ function getAdminHTML(env) {
 
             async open(item, decryptKey = null) {
                 if (!item || !item.name) return;
-                
+
                 this.current = { ...item, decryptKey };
                 this.renderList();
-                
+
                 document.getElementById('editorHeader').classList.remove('hidden');
                 document.getElementById('typeSelector').parentElement.classList.remove('hidden');
-                
+
                 const titleEl = document.getElementById('editorTitle');
                 titleEl.innerText = item.name;
                 titleEl.title = item.name;
-                
+
+                // Render share info bar
+                this.renderShareInfoBar(item);
+
                 document.getElementById('editorContainer').innerHTML = '<div class="loading"><div class="spinner"></div>Loading content...</div>';
 
                 let url = \`\${item.name}?key=\${encodeURIComponent(this.key)}&s=raw\`;
@@ -1262,19 +1309,19 @@ function getAdminHTML(env) {
 
                 try {
                     const res = await fetch(url);
-                    
+
                     if (res.status === 403 && item.enc && !decryptKey) {
                         this.renderDecryptForm();
                         return;
                     }
-                    
+
                     if (!res.ok) {
                         throw new Error(await res.text());
                     }
 
                     const contentType = res.headers.get('content-type') || 'application/octet-stream';
                     this.setSelectorValue(contentType);
-                    
+
                     if (contentType.includes('json')) {
                         const txt = await res.text();
                         try {
@@ -1302,6 +1349,29 @@ function getAdminHTML(env) {
                     document.getElementById('editorContainer').innerHTML = \`
                         <div class="alert alert-error">Error: \${utils.escapeHtml(e.message)}</div>\`;
                 }
+            },
+
+            renderShareInfoBar(item) {
+                const bar = document.getElementById('shareInfoBar');
+                const hasShare = item.shareLink && item.shareLink !== '-' && item.shareLink !== '';
+                const hasCode = item.code && item.code !== '-' && item.code !== '';
+
+                if (!hasShare) {
+                    bar.innerHTML = '';
+                    return;
+                }
+
+                const fullShareUrl = window.location.origin + item.shareLink;
+                const expiryLabel = utils.formatExpiry(item.expiresSec, item.shareActivateStamp);
+
+                bar.innerHTML = \`
+                    <div class="share-info-bar">
+                        <span class="share-label">🔗 Shared</span>
+                        <span class="share-url" title="\${utils.escapeHtml(fullShareUrl)}">\${utils.escapeHtml(fullShareUrl)}</span>
+                        \${hasCode ? '<span class="share-code-display">🔑 ' + utils.escapeHtml(item.code) + '</span>' : ''}
+                        <span style="font-size: 12px; color: var(--gray-500);">⏱ \${expiryLabel}</span>
+                        <button class="btn btn-sm btn-outline" onclick="app.copyText('\${utils.escapeHtml(fullShareUrl)}')" data-tooltip="Copy link">📋</button>
+                    </div>\`;
             },
 
             setSelectorValue(type) {
@@ -1342,7 +1412,7 @@ function getAdminHTML(env) {
             // ================== EDITORS ==================
             getActions() {
                 const downloadUrl = \`\${this.current.name}?key=\${encodeURIComponent(this.key)}\${this.current.decryptKey ? '&c=' + encodeURIComponent(this.current.decryptKey) : ''}&dl=1\`;
-                
+
                 return \`
                     <div class="editor-actions">
                         <button class="btn btn-success" onclick="app.save()">💾 Save</button>
@@ -1367,9 +1437,9 @@ function getAdminHTML(env) {
                         <div class="tab active" onclick="app.switchTab('edit')">Edit</div>
                         <div class="tab" onclick="app.switchTab('preview')">Preview</div>
                     </div>\` : '';
-                    
-                const preview = isMd ? \`<div id="mdPreview" class="md-preview hidden"></div>\` : '';
-                
+
+                const preview = isMd ? '<div id="mdPreview" class="md-preview hidden"></div>' : '';
+
                 document.getElementById('editorContainer').innerHTML = \`
                     \${this.getActions()}
                     \${tabs}
@@ -1377,7 +1447,7 @@ function getAdminHTML(env) {
                         <textarea id="editContent" class="form-control" spellcheck="false" style="flex: 1;">\${utils.escapeHtml(content)}</textarea>
                         \${preview}
                     </div>\`;
-                    
+
                 if (isMd && typeof marked !== 'undefined') {
                     document.getElementById('mdPreview').innerHTML = marked.parse(content);
                 }
@@ -1387,7 +1457,7 @@ function getAdminHTML(env) {
                 const edit = document.getElementById('editContent');
                 const preview = document.getElementById('mdPreview');
                 const tabs = document.querySelectorAll('.tab');
-                
+
                 if (mode === 'edit') {
                     edit.classList.remove('hidden');
                     preview.classList.add('hidden');
@@ -1411,7 +1481,6 @@ function getAdminHTML(env) {
                         <img src="\${url}" style="max-width: 100%; max-height: 60vh; object-fit: contain; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
                         <p style="margin-top: 15px; color: #666;">\${utils.escapeHtml(type)}</p>
                     </div>\`;
-                // Hide save button for images
                 const saveBtn = document.querySelector('.editor-actions .btn-success');
                 if (saveBtn) saveBtn.style.display = 'none';
             },
@@ -1419,7 +1488,7 @@ function getAdminHTML(env) {
             renderAudioPlayer(url, type) {
                 const icon = utils.getAudioIcon(type);
                 const filename = this.current.filename || this.current.name.split('/').pop() || 'Audio';
-                
+
                 document.getElementById('editorContainer').innerHTML = \`
                     \${this.getActions()}
                     <div class="audio-container" style="flex: 1; display: flex; flex-direction: column; justify-content: center;">
@@ -1436,32 +1505,26 @@ function getAdminHTML(env) {
                             <span style="margin-left: 20px;">\${utils.escapeHtml(type)}</span>
                         </div>
                     </div>\`;
-                
-                // Hide save button for audio
+
                 const saveBtn = document.querySelector('.editor-actions .btn-success');
                 if (saveBtn) saveBtn.style.display = 'none';
 
-                // Update duration when metadata is loaded
                 const audio = document.getElementById('audioElement');
                 if (audio) {
                     audio.addEventListener('loadedmetadata', () => {
                         const durationEl = document.getElementById('audioDuration');
-                        if (durationEl) {
-                            durationEl.textContent = 'Duration: ' + utils.formatDuration(audio.duration);
-                        }
+                        if (durationEl) durationEl.textContent = 'Duration: ' + utils.formatDuration(audio.duration);
                     });
                     audio.addEventListener('error', () => {
                         const durationEl = document.getElementById('audioDuration');
-                        if (durationEl) {
-                            durationEl.textContent = 'Error loading audio';
-                        }
+                        if (durationEl) durationEl.textContent = 'Error loading audio';
                     });
                 }
             },
 
             renderVideoPlayer(url, type) {
                 const filename = this.current.filename || this.current.name.split('/').pop() || 'Video';
-                
+
                 document.getElementById('editorContainer').innerHTML = \`
                     \${this.getActions()}
                     <div style="text-align: center; background: #1a1a2e; padding: 20px; border-radius: 8px; flex: 1; display: flex; flex-direction: column; justify-content: center;">
@@ -1475,19 +1538,15 @@ function getAdminHTML(env) {
                             <span id="videoDuration" style="margin-left: 20px;">Duration: Loading...</span>
                         </div>
                     </div>\`;
-                
-                // Hide save button for video
+
                 const saveBtn = document.querySelector('.editor-actions .btn-success');
                 if (saveBtn) saveBtn.style.display = 'none';
 
-                // Update duration when metadata is loaded
                 const video = document.getElementById('videoElement');
                 if (video) {
                     video.addEventListener('loadedmetadata', () => {
                         const durationEl = document.getElementById('videoDuration');
-                        if (durationEl) {
-                            durationEl.textContent = 'Duration: ' + utils.formatDuration(video.duration);
-                        }
+                        if (durationEl) durationEl.textContent = 'Duration: ' + utils.formatDuration(video.duration);
                     });
                 }
             },
@@ -1505,7 +1564,6 @@ function getAdminHTML(env) {
                         </div>
                         <button class="btn btn-success" style="margin-top: 15px;" onclick="app.uploadReplacement()">⬆️ Upload & Replace</button>
                     </div>\`;
-                // Hide the main save button
                 const saveBtn = document.querySelector('.editor-actions .btn-success');
                 if (saveBtn) saveBtn.style.display = 'none';
             },
@@ -1520,7 +1578,7 @@ function getAdminHTML(env) {
 
                 const type = document.getElementById('typeSelector').value;
                 let url = \`\${this.current.name}?key=\${encodeURIComponent(this.key)}\`;
-                
+
                 if (this.current.decryptKey) {
                     url += \`&c=\${encodeURIComponent(this.current.decryptKey)}\`;
                 }
@@ -1528,7 +1586,7 @@ function getAdminHTML(env) {
                 if (type.includes('json')) {
                     try {
                         let json = JSON.parse(content);
-                        content = JSON.stringify(json,null);
+                        content = JSON.stringify(json, null);
                         document.getElementById('editContent').value = content;
                     } catch (e) {
                         this.showAlert('Invalid JSON: ' + e.message, 'error');
@@ -1539,15 +1597,14 @@ function getAdminHTML(env) {
                 }
 
                 try {
-                    console.log("Upload:",content )
                     const res = await fetch(url, {
                         method: 'POST',
                         headers: { 'Content-Type': type },
                         body: content
                     });
-                    
+
                     if (!res.ok) throw new Error(await res.text());
-                    
+
                     this.showAlert('Saved successfully!', 'success');
                     this.loadItems();
                 } catch (e) {
@@ -1561,10 +1618,10 @@ function getAdminHTML(env) {
                     this.showAlert('Please select a file', 'error');
                     return;
                 }
-                
+
                 const file = fileInput.files[0];
                 let url = \`\${this.current.name}?key=\${encodeURIComponent(this.key)}&s=raw\`;
-                
+
                 if (this.current.decryptKey) {
                     url += \`&c=\${encodeURIComponent(this.current.decryptKey)}\`;
                 }
@@ -1575,9 +1632,9 @@ function getAdminHTML(env) {
                         headers: { 'Content-Type': file.type || 'application/octet-stream' },
                         body: file
                     });
-                    
+
                     if (!res.ok) throw new Error(await res.text());
-                    
+
                     this.showAlert('File replaced!', 'success');
                     this.open(this.current, this.current.decryptKey);
                 } catch (e) {
@@ -1588,17 +1645,16 @@ function getAdminHTML(env) {
             // ================== TYPE CHANGE ==================
             async changeType(newType) {
                 if (!this.current) return;
-                
+
                 try {
                     const url = \`\${this.current.name}?key=\${encodeURIComponent(this.key)}&set_type=\${encodeURIComponent(newType)}\`;
                     const res = await fetch(url, { method: 'POST' });
-                    
+
                     if (!res.ok) throw new Error('Update failed');
-                    
+
                     this.showAlert('Type updated to ' + newType, 'success');
                     await this.loadItems();
-                    
-                    // Update current item and reopen
+
                     const updated = this.items.find(i => i.name === this.current.name);
                     if (updated) {
                         this.open(updated, this.current.decryptKey);
@@ -1623,15 +1679,15 @@ function getAdminHTML(env) {
             async submitRename() {
                 const newPath = document.getElementById('renamePath').value.trim();
                 const newFilename = document.getElementById('renameFilename').value.trim();
-                
+
                 if (!newPath.startsWith('/')) {
                     this.showAlert('Path must start with /', 'error');
                     return;
                 }
-                
+
                 const pathChanged = newPath !== this.current.name;
                 const filenameChanged = newFilename !== this.current.filename;
-                
+
                 if (!pathChanged && !filenameChanged) {
                     this.showAlert('No changes made', 'warning');
                     this.closeRenameModal();
@@ -1644,7 +1700,7 @@ function getAdminHTML(env) {
                     if (pathChanged) url += \`&rename_to=\${encodeURIComponent(newPath)}\`;
 
                     let res = await fetch(url, { method: 'POST' });
-                    
+
                     if (res.status === 409) {
                         if (confirm('Destination already exists. Overwrite?')) {
                             res = await fetch(url + '&force=true', { method: 'POST' });
@@ -1652,7 +1708,7 @@ function getAdminHTML(env) {
                             return;
                         }
                     }
-                    
+
                     if (!res.ok) {
                         throw new Error(await res.text());
                     }
@@ -1660,7 +1716,7 @@ function getAdminHTML(env) {
                     this.showAlert('Renamed successfully!', 'success');
                     this.closeRenameModal();
                     await this.loadItems();
-                    
+
                     const finalPath = pathChanged ? newPath : this.current.name;
                     const updated = this.items.find(i => i.name === finalPath);
                     if (updated) {
@@ -1675,18 +1731,19 @@ function getAdminHTML(env) {
             async del() {
                 if (!this.current) return;
                 if (!confirm(\`Delete "\${this.current.name}"? This cannot be undone.\`)) return;
-                
+
                 try {
                     const res = await fetch(\`\${this.current.name}?key=\${encodeURIComponent(this.key)}\`, {
                         method: 'DELETE'
                     });
-                    
+
                     if (!res.ok) throw new Error(await res.text());
-                    
+
                     this.showAlert('Deleted successfully', 'success');
                     this.current = null;
                     this.loadItems();
-                    
+
+                    document.getElementById('shareInfoBar').innerHTML = '';
                     document.getElementById('editorContainer').innerHTML = \`
                         <div class="empty-state">
                             <div class="empty-state-icon">🗑️</div>
@@ -1704,14 +1761,15 @@ function getAdminHTML(env) {
                 document.getElementById('editorHeader').classList.remove('hidden');
                 document.getElementById('typeSelector').parentElement.classList.add('hidden');
                 document.getElementById('editorTitle').innerText = 'New Item';
-                
+                document.getElementById('shareInfoBar').innerHTML = '';
+
                 document.getElementById('editorContainer').innerHTML = \`
                     <form onsubmit="event.preventDefault(); app.create();">
                         <div class="form-group">
                             <label>Path *</label>
                             <input type="text" id="newPath" class="form-control" placeholder="/path/to/file.json" required>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Content Type</label>
                             <div style="display: flex; gap: 20px; margin-top: 5px;">
@@ -1725,12 +1783,12 @@ function getAdminHTML(env) {
                                 </label>
                             </div>
                         </div>
-                        
+
                         <div id="grpText" class="form-group">
                             <label>Content</label>
                             <textarea id="newContent" class="form-control" placeholder='{"key": "value"}'></textarea>
                         </div>
-                        
+
                         <div id="grpFile" class="form-group hidden">
                             <label>Select File</label>
                             <input type="file" id="newFile" class="form-control" onchange="app.suggestPath(this)" accept="*/*">
@@ -1738,17 +1796,17 @@ function getAdminHTML(env) {
                                 Supports: JSON, Text, Images, Audio (MP3, WAV, OGG), Video, and more
                             </small>
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Filename (for downloads)</label>
                             <input type="text" id="newFilename" class="form-control" placeholder="Optional display name">
                         </div>
-                        
+
                         <div class="form-group">
                             <label>Encryption Key (optional)</label>
                             <input type="password" id="newKey" class="form-control" placeholder="Leave empty for no encryption">
                         </div>
-                        
+
                         <button type="submit" class="btn btn-success" style="width: 100%;">Create Item</button>
                     </form>\`;
             },
@@ -1774,17 +1832,17 @@ function getAdminHTML(env) {
                     this.showAlert('Path must start with /', 'error');
                     return;
                 }
-                
+
                 const key = document.getElementById('newKey').value;
                 const filename = document.getElementById('newFilename').value.trim();
                 const isFile = document.querySelector('input[name="newMode"][value="file"]').checked;
-                
+
                 let url = \`\${path}?key=\${encodeURIComponent(this.key)}\`;
                 if (filename) url += \`&filename=\${encodeURIComponent(filename)}\`;
                 if (key) url += \`&c=\${encodeURIComponent(key)}\`;
-                
+
                 let body, contentType;
-                
+
                 if (isFile) {
                     const fileInput = document.getElementById('newFile');
                     if (!fileInput || !fileInput.files[0]) {
@@ -1811,12 +1869,12 @@ function getAdminHTML(env) {
                         headers: { 'Content-Type': contentType },
                         body
                     });
-                    
+
                     if (!res.ok) throw new Error(await res.text());
-                    
+
                     this.showAlert('Created successfully!', 'success');
                     await this.loadItems();
-                    
+
                     const newItem = this.items.find(i => i.name === path);
                     if (newItem) {
                         this.open(newItem, key || null);
@@ -1829,11 +1887,24 @@ function getAdminHTML(env) {
             // ================== SHARE ==================
             showShareModal() {
                 if (!this.current) return;
+
+                const hasExisting = this.current.shareLink && this.current.shareLink !== '-' && this.current.shareLink !== '';
+                const existingInfoEl = document.getElementById('existingShareInfo');
+
+                if (hasExisting) {
+                    existingInfoEl.classList.remove('hidden');
+                    const fullUrl = window.location.origin + this.current.shareLink;
+                    document.getElementById('existingShareUrl').value = fullUrl;
+                    document.getElementById('existingShareCode').value = this.current.code || '(none)';
+                } else {
+                    existingInfoEl.classList.add('hidden');
+                }
+
                 document.getElementById('shareModal').classList.remove('hidden');
                 document.getElementById('shareResultGroup').classList.add('hidden');
                 document.getElementById('btnGenShare').style.display = 'inline-flex';
-                document.getElementById('shareExpiry').value = '-1';
-                document.getElementById('sharedCode').value = '';
+                document.getElementById('shareExpiry').value = '1';
+                document.getElementById('sharedCode').value = this.current.code || '';
             },
 
             closeShareModal() {
@@ -1851,7 +1922,7 @@ function getAdminHTML(env) {
                 const code = document.getElementById('sharedCode').value;
 
                 let url = \`\${this.current.name}?key=\${encodeURIComponent(this.key)}&download=1&expires=\${expiry}&code=\${encodeURIComponent(code)}&json_response=1\`;
-                
+
                 if (this.current.decryptKey) {
                     url += \`&c=\${encodeURIComponent(this.current.decryptKey)}\`;
                 }
@@ -1859,13 +1930,27 @@ function getAdminHTML(env) {
                 try {
                     const res = await fetch(url);
                     if (!res.ok) throw new Error(await res.text());
-                    
+
                     const data = await res.json();
                     const shareUrl = window.location.origin + data.url;
-                    
+
                     document.getElementById('shareUrl').value = shareUrl;
                     document.getElementById('shareResultGroup').classList.remove('hidden');
                     document.getElementById('btnGenShare').style.display = 'none';
+
+                    // Update the current item's share info and refresh
+                    this.current.shareLink = data.url;
+                    this.current.code = code;
+
+                    // Refresh the list to pick up new metadata
+                    await this.loadItems();
+
+                    // Re-find the current item with updated data
+                    const updated = this.items.find(i => i.name === this.current.name);
+                    if (updated) {
+                        this.current = { ...updated, decryptKey: this.current.decryptKey };
+                        this.renderShareInfoBar(updated);
+                    }
                 } catch (e) {
                     this.showAlert('Error generating link: ' + e.message, 'error');
                 }
@@ -1873,16 +1958,12 @@ function getAdminHTML(env) {
 
             copyShareUrl() {
                 const input = document.getElementById('shareUrl');
-                input.select();
-                input.setSelectionRange(0, 99999); // For mobile
-                
-                try {
-                    navigator.clipboard.writeText(input.value);
-                    this.showAlert('Copied to clipboard!', 'success');
-                } catch (e) {
-                    document.execCommand('copy');
-                    this.showAlert('Copied to clipboard!', 'success');
-                }
+                this.copyText(input.value);
+            },
+
+            copyExistingShareUrl() {
+                const input = document.getElementById('existingShareUrl');
+                this.copyText(input.value);
             },
 
             // ================== ALERTS ==================
@@ -1896,34 +1977,28 @@ function getAdminHTML(env) {
 
         // ================== KEYBOARD SHORTCUTS ==================
         document.addEventListener('keydown', (e) => {
-            // Escape to close modals
             if (e.key === 'Escape') {
                 document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => m.classList.add('hidden'));
             }
-            // Ctrl/Cmd + S to save
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
                 if (app.current && document.getElementById('editContent')) {
                     e.preventDefault();
                     app.save();
                 }
             }
-            // Space to play/pause audio/video
             if (e.key === ' ' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
                 const audio = document.getElementById('audioElement');
                 const video = document.getElementById('videoElement');
                 const media = audio || video;
                 if (media) {
                     e.preventDefault();
-                    if (media.paused) {
-                        media.play();
-                    } else {
-                        media.pause();
-                    }
+                    if (media.paused) media.play();
+                    else media.pause();
                 }
             }
         });
 
-        // ================== EVENT DELEGATION FOR ITEMS LIST ==================
+        // ================== EVENT DELEGATION ==================
         document.getElementById('itemsList').addEventListener('click', (e) => {
             const itemEl = e.target.closest('.item');
             if (itemEl && itemEl.dataset.name) {
