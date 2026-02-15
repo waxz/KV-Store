@@ -350,8 +350,12 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
         const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
         if (!result || !result.value) return jsonError("Source item not found", 404);
 
-        const newMeta = result.metadata || {};
+        let newMeta = result.metadata || {};
         newMeta.filename = filename;
+        newMeta.code = null;
+        newMeta.shareLink = null;
+        newMeta.shareActivateStamp = null;
+        newMeta.expiresSec = null;
 
         await env.JSONBIN.put(newPath, result.value, { metadata: newMeta });
         await env.JSONBIN.delete(pathname);
