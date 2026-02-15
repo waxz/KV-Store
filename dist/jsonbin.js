@@ -397,6 +397,8 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
 
     if (storetype === "json") {
         let existing = {};
+        let existing_meta = {};
+
         const result = await env.JSONBIN.getWithMetadata(pathname);
 
         if (result?.value) {
@@ -405,7 +407,11 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
             if (meta.crypt && crypt) {
                 try { val = await decryptData(val, crypt); } catch (e) { }
             }
-            try { existing = JSON.parse(val); } catch (e) { }
+            try { 
+                existing = JSON.parse(val); 
+                existing_meta = meta;
+
+            } catch (e) { }
         }
 
         let bodyText = await request.text();
@@ -417,13 +423,31 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
         }
 
         let dataToStore = JSON.stringify(existing);
-        if (crypt) dataToStore = await encryptData(dataToStore, crypt);
+        let metaToStore = existing_meta;
 
-        await env.JSONBIN.put(pathname, dataToStore, { metadata: { crypt: !!crypt, filename, filetype: "application/json" } });
+        if (crypt) dataToStore = await encryptData(dataToStore, crypt);
+        metaToStore.crypt = !!crypt;
+        metaToStore.filename = filename;
+        metaToStore.filetype = "application/json";
+
+        await env.JSONBIN.put(pathname, dataToStore, { metadata: metaToStore });    
         return jsonOK({ ok: true, type: "json", encrypted: !!crypt });
     }
 
     if (storetype === "raw") {
+        let existing_meta = {};
+
+        const result = await env.JSONBIN.getWithMetadata(pathname);
+
+        if (result?.metadata) {
+            const meta = result.metadata || {};
+            
+            try { 
+                existing_meta = meta;
+            } catch (e) { }
+        }
+
+
         const buffer = await request.arrayBuffer();
         let toStore = buffer;
 
@@ -431,14 +455,15 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
             const encrypted = await encryptBinary(buffer, crypt);
             toStore = new TextEncoder().encode(encrypted).buffer;
         }
+        let metaToStore = existing_meta;
+        metaToStore.filename = filename;
+        metaToStore.filetype = contentType || "application/octet-stream";
+        metaToStore.crypt = !!crypt;
+        metaToStore.size = toStore.byteLength;
+
 
         await env.JSONBIN.put(pathname, toStore, {
-            metadata: {
-                filetype: contentType || "application/octet-stream",
-                filename,
-                size: toStore.byteLength,
-                crypt: !!crypt
-            }
+            metadata: metaToStore
         });
         return jsonOK({ stored: filename, type: "raw", size: toStore.byteLength, encrypted: !!crypt });
     }
