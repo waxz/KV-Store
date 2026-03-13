@@ -124,7 +124,7 @@ export async function handleRequest(request, env) {
 // HANDLER FUNCTIONS
 // ============================================================
 
-async function handleForwardRequest(request, result, forwardPathname){
+async function handleForwardRequest(request, result, forwardPathname) {
 
     let text = bufferToText(result.value);
     let config;
@@ -168,10 +168,10 @@ async function handleTokenDownload(request, env) {
         shareCode = path_list[2].slice(6);
     }
     var forward = false;
-    if (shareCode){
-         forward = path_list.length >= 4 ;
-    }else{
-         forward = path_list.length >= 3;
+    if (shareCode) {
+        forward = path_list.length >= 4;
+    } else {
+        forward = path_list.length >= 3;
     }
 
 
@@ -218,7 +218,7 @@ async function handleTokenDownload(request, env) {
 
             // check valid url
             let slice_index = 2 + path_list[0].length + path_list[1].length;
-            if (shareCode){
+            if (shareCode) {
                 slice_index += 1 + path_list[2].length
             }
 
@@ -230,11 +230,12 @@ async function handleTokenDownload(request, env) {
 
                 let config = null;
                 let config_url = null;
-                try { 
+                try {
                     let text = bufferToText(result.value);
-                    config = JSON.parse(text); config_url =  config.url || null ;} catch (e) { config = null }
+                    config = JSON.parse(text); config_url = config.url || null;
+                } catch (e) { config = null }
 
-                if (!config_url){
+                if (!config_url) {
 
                     return new Response(result.value, {
                         headers: {
@@ -258,7 +259,7 @@ async function handleTokenDownload(request, env) {
 async function handleForward(pathname, forwardPathname, request, env, { crypt, q }) {
     const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
     if (!result?.value) return jsonError(`Forward config not found`, 404);
-    return handleForwardRequest(request, result,forwardPathname);
+    return handleForwardRequest(request, result, forwardPathname);
 
 }
 
@@ -564,10 +565,10 @@ function getAdminHTML(env) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" type="image/x-icon" href="https://img.icons8.com/?size=100&id=lR3lNSwEbHDV&format=png&color=000000">
-    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
+   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚀</text></svg>">
     <title>JSONBIN Admin Panel</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"><\/script>
     <style>
         :root {
             --primary: #667eea;
@@ -1330,6 +1331,8 @@ function getAdminHTML(env) {
 
             // ================== COPY HELPER ==================
             copyText(text) {
+                
+
                 navigator.clipboard.writeText(text).then(() => {
                     this.showAlert('Copied to clipboard!', 'success');
                 }).catch(() => {
@@ -1436,13 +1439,22 @@ function getAdminHTML(env) {
                 const expiryLabel = utils.formatExpiry(item.expiresSec, item.shareActivateStamp);
                 let shareUrl = \`\${fullShareUrl.slice(0, Math.min(60,fullShareUrl.length))}...\`;
 
+                let url = utils.escapeHtml(fullShareUrl);
+
+              let qrcode_url = 'https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=' + url;
+
                 bar.innerHTML = \`
                     <div class="share-info-bar">
                         <span class="share-label">🔗 Shared</span>
-                        <span class="share-url" title="\${utils.escapeHtml(fullShareUrl)}">\${utils.escapeHtml(shareUrl)}</span>
+                        <span class="share-url" title="\${url}">\${utils.escapeHtml(shareUrl)}</span>
                         \${hasCode ? '<span class="share-code-display">🔑 ' + utils.escapeHtml(item.code) + '</span>' : ''}
                         <span style="font-size: 12px; color: var(--gray-500);">⏱ \${expiryLabel}</span>
-                        <button class="btn btn-sm btn-outline" onclick="app.copyText('\${utils.escapeHtml(fullShareUrl)}')" data-tooltip="Copy link">📋</button>
+                        <button class="btn btn-sm btn-outline" onclick="const overlay = document.getElementById('imageOverlay'); if(overlay){ overlay.style.display = 'flex'; }; app.copyText('\${url}');" data-tooltip="Copy link">📋</button>
+                        <div id="imageOverlay" onclick="this.style.display='none'"  style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+                            <img src="\${qrcode_url}" alt="Centered Image" style="max-width: 90%; max-height: 90%; border: 5px solid white;">
+                        </div>
+
+
                     </div>\`;
             },
 
@@ -2046,6 +2058,7 @@ function getAdminHTML(env) {
                 setTimeout(() => el.innerHTML = '', 4000);
             }
         };
+
 
         // ================== KEYBOARD SHORTCUTS ==================
         document.addEventListener('keydown', (e) => {

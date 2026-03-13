@@ -2,13 +2,44 @@
 
 A simple json store based on cloudflare KV
 
-### Admin
+### Feature
+- Store Any Data: json, txt, image, pdf, binary file
+- Share Public Link and QR Code
+- Forward Your Request To Stored URL, just create a shared link, add extra path.
+
+
+
+### Admin Usage
+- create an item `/share`
+```
+{
+  "url": "https://www.yourapi.com"
+}
+```
+- create shared link with sharecode
+```
+https://upgraded-memory-4jqrgj567x73jx75-8788.app.github.dev/_download/iVmR1s4gtCRN7%2FwM%3Aa0O0lYj0uL%2FjmkKKYOUJ7FWQHcaDoTCgeg9s/share=123
+```
+- use it as an api forward or anything
+
+```
+curl "https://upgraded-memory-4jqrgj567x73jx75-8788.app.github.dev/_download/iVmR1s4gtCRN7%2FwM%3Aa0O0lYj0uL%2FjmkKKYOUJ7FWQHcaDoTCgeg9s/share=123/api"
+
+# equals to
+curl "https://www.yourapi.com/api"
+```
+
+
+### ScreenShot
 ```
 https://jsonbin.your-account.workers.dev
 ```
 ![login](assets/login.png)
 ![admin](assets/admin.png)
 ![share](assets/share.png)
+![share](assets/qrcode.png)
+
+
 
 ### write
 
@@ -133,3 +164,7 @@ curl "http://localhost:8788/_forward/yourapi/wiki.json/urlsplit/wiki/Kangaroo_ra
 curl "http://localhost:8788/test/wiki.jpg?key=yourapi" --data-binary @./wiki.jpg
 curl -sSL -o wiki2.jpg "http://localhost:8788/test/wiki.jpg?key=yourapi&download"
 ```
+
+
+### Reference
+- https://goqr.me/api/
