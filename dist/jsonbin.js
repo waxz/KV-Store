@@ -124,82 +124,13 @@ export async function handleRequest(request, env) {
 // HANDLER FUNCTIONS
 // ============================================================
 
-async function handleTokenDownload(request, env) {
-    const url = new URL(request.url);
-    const { searchParams } = url;
-    const pathname = url.pathname;
-    const shareCode = searchParams.get("share") || "";
-
-    console.log(`shareCode=${shareCode}`);
-
-    const link = `${decodeURIComponent(pathname)}`.slice(11);
-    const shareLink = decodeURIComponent(await decryptData(link, shareCode));
-
-    console.log(`handleTokenDownload link ${link}`);
-    console.log(`handleTokenDownload shareLink ${shareLink}`);
-    const path = shareLink.slice(4);
-    console.log(`handleTokenDownload path ${path}`);
-
-    if (shareLink.startsWith("/_s/")) {
-        console.log("path", path);
-
-        const result = await env.JSONBIN.getWithMetadata(path, "arrayBuffer");
-        if (!result || !result.value) return jsonError("Source item not found", 404);
-        const newMeta = result.metadata || {};
-
-        console.log("newMeta", newMeta);
-
-        if (newMeta.expiresSec == 0) {
-            return jsonError("Share is Disabled", 404);
-        }
-
-        let shared_ok = false;
-        if (shareCode == newMeta.code) {
-            if (newMeta.expiresSec == 1) {
-                shared_ok = true;
-            } else {
-                const now = Date.now();
-                const dt = now - newMeta.shareActivateStamp;
-                const sec = dt / 1000;
-                console.log("sec", sec);
-                if (sec > newMeta.expiresSec) {
-                    shared_ok = false;
-                } else {
-                    shared_ok = true;
-                }
-            }
-        } else {
-            return jsonError("shareCode is Wrong", 404);
-        }
-
-        if (shared_ok) {
-            const filename = sanitizeFilename(newMeta.filename || path.split("/").pop() || "data");
-
-            return new Response(result.value, {
-                headers: {
-                    "Content-Type": newMeta.filetype,
-                    "Content-Disposition": `attachment; filename="${sanitizeFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(sanitizeFilename(filename))}`,
-                    "Content-Length": String(result.value.byteLength || 0),
-                    "Cache-Control": "no-store"
-                }
-            });
-        }
-    }
-
-    return jsonError("shareCode Expires", 404);
-}
-
-async function handleForward(pathname, forwardPathname, request, env, { crypt, q }) {
-    const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
-    if (!result?.value) return jsonError(`Forward config not found`, 404);
+async function handleForwardRequest(request, result, forwardPathname){
 
     let text = bufferToText(result.value);
-    if (crypt) text = await decryptAndDecode(text, crypt);
-
     let config;
     try { config = JSON.parse(text); } catch (e) { return jsonError("Invalid Config", 500); }
 
-    let targetUrl = (q && config[q]) ? config[q] : config.url;
+    let targetUrl = config.url || null;
     if (!targetUrl) return jsonError("No target URL", 404);
 
     const forwardConfig = {
@@ -220,6 +151,115 @@ async function handleForward(pathname, forwardPathname, request, env, { crypt, q
         });
     }
     return addCORSHeaders(response, request, forwardConfig);
+
+}
+
+async function handleTokenDownload(request, env) {
+    const url = new URL(request.url);
+    const { searchParams } = url;
+    const pathname = url.pathname;
+    var path_list = pathname.slice(1).split("/");
+
+    var shareCode = "";
+    if (path_list.length < 2) {
+        return jsonError(`URL ${url} is Invalid`, 404);
+    }
+    if (path_list.length >= 3 && path_list[2].startsWith("share=")) {
+        shareCode = path_list[2].slice(6);
+    }
+    var forward = false;
+    if (shareCode){
+         forward = path_list.length >= 4 ;
+    }else{
+         forward = path_list.length >= 3;
+    }
+
+
+
+
+    const link = decodeURIComponent(path_list[1]);
+
+    const shareLink = decodeURIComponent(await decryptData(link, shareCode));
+
+    const path = shareLink.slice(3);
+
+    if (shareLink.startsWith("/_s/")) {
+
+        const result = await env.JSONBIN.getWithMetadata(path, "arrayBuffer");
+        if (!result || !result.value) return jsonError("Source item not found", 404);
+        const newMeta = result.metadata || {};
+
+
+        if (newMeta.expiresSec == 0) {
+            return jsonError("Share is Disabled", 404);
+        }
+
+        let shared_ok = false;
+        if (shareCode == newMeta.code) {
+            if (newMeta.expiresSec == 1) {
+                shared_ok = true;
+            } else {
+                const now = Date.now();
+                const dt = now - newMeta.shareActivateStamp;
+                const sec = dt / 1000;
+                if (sec > newMeta.expiresSec) {
+                    shared_ok = false;
+                } else {
+                    shared_ok = true;
+                }
+            }
+        } else {
+            return jsonError(`shareCode ${shareCode} is Wrong`, 404);
+        }
+
+
+        if (shared_ok) {
+            const filename = sanitizeFilename(newMeta.filename || path.split("/").pop() || "data");
+
+            // check valid url
+            let slice_index = 2 + path_list[0].length + path_list[1].length;
+            if (shareCode){
+                slice_index += 1 + path_list[2].length
+            }
+
+            let forwardPathname = pathname.slice(slice_index);
+
+            if (!forward) {
+
+                forwardPathname = "/";
+
+                let config = null;
+                let config_url = null;
+                try { 
+                    let text = bufferToText(result.value);
+                    config = JSON.parse(text); config_url =  config.url || null ;} catch (e) { config = null }
+
+                if (!config_url){
+
+                    return new Response(result.value, {
+                        headers: {
+                            "Content-Type": newMeta.filetype,
+                            "Content-Disposition": `attachment; filename="${sanitizeFilename(filename)}"; filename*=UTF-8''${encodeURIComponent(sanitizeFilename(filename))}`,
+                            "Content-Length": String(result.value.byteLength || 0),
+                            "Cache-Control": "no-store"
+                        }
+                    });
+                }
+
+            }
+
+            return handleForwardRequest(request, result, forwardPathname);
+        }
+    }
+
+    return jsonError("shareCode Expires", 404);
+}
+
+async function handleForward(pathname, forwardPathname, request, env, { crypt, q }) {
+    const result = await env.JSONBIN.getWithMetadata(pathname, "arrayBuffer");
+    if (!result?.value) return jsonError(`Forward config not found`, 404);
+    return handleForwardRequest(request, result,forwardPathname);
+
 }
 
 async function handleList(searchParams, env) {
@@ -407,8 +447,8 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
             if (meta.crypt && crypt) {
                 try { val = await decryptData(val, crypt); } catch (e) { }
             }
-            try { 
-                existing = JSON.parse(val); 
+            try {
+                existing = JSON.parse(val);
                 existing_meta = meta;
 
             } catch (e) { }
@@ -430,7 +470,7 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
         metaToStore.filename = filename;
         metaToStore.filetype = "application/json";
 
-        await env.JSONBIN.put(pathname, dataToStore, { metadata: metaToStore });    
+        await env.JSONBIN.put(pathname, dataToStore, { metadata: metaToStore });
         return jsonOK({ ok: true, type: "json", encrypted: !!crypt });
     }
 
@@ -441,8 +481,8 @@ async function handleStore(pathname, request, env, { sParam, q, crypt, encbase64
 
         if (result?.metadata) {
             const meta = result.metadata || {};
-            
-            try { 
+
+            try {
                 existing_meta = meta;
             } catch (e) { }
         }
@@ -485,16 +525,17 @@ async function createDownloadToken(pathname, filetype, searchParams, env, crypt,
     if (!result || !result.value) return jsonError("Source item not found", 404);
     const newMeta = result.metadata || {};
 
-    const link = `/_s/${encodeURIComponent(pathname)}`;
-    console.log(`link:${link}`);
-    const shareLink = `/_download/${encodeURIComponent(await encryptData(link, code))}?share=${code}`;
+    const link = `/_s${encodeURIComponent(pathname)}`;
+    var shareLink = `/_download/${encodeURIComponent(await encryptData(link, code))}`;
+    if (code) {
+        shareLink += `/share=${code}`;
+    }
 
     newMeta.code = code;
     newMeta.shareActivateStamp = Date.now();
     newMeta.expiresSec = expiresSec;
     newMeta.shareLink = shareLink;
 
-    console.log("createDownloadToken newMeta:", newMeta);
 
     await env.JSONBIN.put(pathname, result.value, { metadata: newMeta });
 
@@ -524,6 +565,7 @@ function getAdminHTML(env) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" type="image/x-icon" href="https://img.icons8.com/?size=100&id=lR3lNSwEbHDV&format=png&color=000000">
+    <link rel="icon" type="image/x-icon" href="/images/favicon.ico">
     <title>JSONBIN Admin Panel</title>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"><\/script>
     <style>
