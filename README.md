@@ -116,9 +116,11 @@ dist
 | KV namespac | JSONBIN | jsonbin|
 
 
-## dev pages locally
+## development locally
+> it's safe to share kv id in github
 ```bash
 npx wrangler pages dev ./dist -k JSONBIN=jsonbin --compatibility-date=2025-10-08
+npx wrangler dev --port 8788
 ```
 
 ```bash
@@ -165,6 +167,6 @@ curl "http://localhost:8788/test/wiki.jpg?key=yourapi" --data-binary @./wiki.jpg
 curl -sSL -o wiki2.jpg "http://localhost:8788/test/wiki.jpg?key=yourapi&download"
 ```
 
-
 ### Reference
+- https://jeromeetienne.github.io/jquery-qrcode/
 - https://goqr.me/api/

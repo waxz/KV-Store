@@ -1,5 +1,4 @@
 import { handleRequest } from './jsonbin.js';
-
 // Standard CORS headers to allow browser access
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -16,6 +15,26 @@ export default {
 
     try {
       // 2. Pass request, env, and ctx (for waitUntil)
+
+      const url =  new URL(request.url);
+      
+      if (url.pathname === "/") {
+        // Create a new URL object to avoid mutating the original request URL
+        // const homeUrl = new URL("/home.html", url.origin);
+        
+        // console.log(`Redirecting to static resource: ${homeUrl.pathname}`);
+
+        // // env.ASSETS.fetch accepts a URL object, a string, or a Request object
+        // return await env.ASSETS.fetch(homeUrl.toString());
+        return await env.ASSETS.fetch(request);
+
+      }
+      
+      if(url.pathname.startsWith("/static")){
+        console.log(`fetch local resource:`,request)
+        return await env.ASSETS.fetch(request)
+      }
+
       const response = await handleRequest(request, env, ctx);
 
       // 3. Attach CORS headers to the response so the UI works

@@ -1,0 +1,16 @@
+
+# Project configuration
+name = "jsonbin"
+main = "dist/_worker.js"           # Your entry point file
+compatibility_date = "2025-10-08"
+
+
+[[kv_namespaces]]
+binding = "JSONBIN"
+id = ""         # Production ID (required for wrangler to recognize the block)
+preview_id = "jsonbin_pre" # Recommended: Keeps local dev data separate
+
+
+[assets]
+directory = "./dist"   # Folder containing your static files
+binding = "ASSETS"     # This enables env.ASSETS.fetch()
