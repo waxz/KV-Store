@@ -91,7 +91,7 @@ npm i
 Deploy command:
 
 ```bash
-npx wrangler deploy ./dist/_worker.js --compatibility-date 2025-08-31
+npx wrangler deploy
 ```
 
 #### for pages
@@ -119,8 +119,14 @@ dist
 ## development locally
 > it's safe to share kv id in github
 ```bash
+## run dev server
 npx wrangler pages dev ./dist -k JSONBIN=jsonbin --compatibility-date=2025-10-08
 npx wrangler dev --port 8788
+
+## deploy to cf
+npx wrangler pages deploy ./dist --project-name jsonbin --commit-dirty=true
+npx wrangler deploy
+
 ```
 
 ```bash
